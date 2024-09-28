@@ -19,14 +19,14 @@ pub fn get_text_from_image(image_path: &Path) -> Result<String, io::Error> {
 
 pub fn get_number_from_string(input: &str) -> Option<String> {
     // 创建一个匹配8位数字的正则表达式
-    let re = Regex::new("NO:(.{10})").unwrap();
+    let re = Regex::new(r"NO:(.{10})").unwrap();
 
     // 使用正则表达式查找匹配项
     if let Some(cap) = re.captures(input) {
         // 如果找到匹配项，则返回匹配的字符串
         let number = cap.get(1)?;
         if let 10 = number.len() {
-            Some(number.as_str().to_string()[3..].to_string())
+            Some(number.as_str()[2..].to_string())
         } else { None }
     } else {
         // 如果没有匹配项，返回 None
@@ -34,7 +34,7 @@ pub fn get_number_from_string(input: &str) -> Option<String> {
     }
 }
 
-pub fn print_result(total_files_count: usize, result_map: &HashMap<String, Vec<String>>) {
+pub fn print_result(total_files_count: usize, result_map: &HashMap<String, Vec<&str>>) {
     let valid_count = result_map.len();
     let mut duplication: usize = 0;
     for (_string, vec) in result_map.iter() {
@@ -52,7 +52,7 @@ pub fn print_result(total_files_count: usize, result_map: &HashMap<String, Vec<S
 }
 
 
-/// 根据原始路径和修改函数创建一个新路径，并创建该新目录。
+/// 根据原始路径和修改函数创建一个新路径。
 ///
 /// # 参数
 /// - `original_path`: 原始的路径，例如 "a/b/c"
@@ -88,7 +88,6 @@ where
 
     // 构建新的路径
     let new_path = parent.join(&modified_component);
-    fs::create_dir_all(&new_path)?;
 
     Ok(new_path)
 }
@@ -112,6 +111,6 @@ pub fn get_image_paths(dir: &str) -> io::Result<Vec<String>> {
     Ok(paths)
 }
 
-pub fn image_path_with_unique_number(result_map: &HashMap<String, Vec<String>>) -> Option<Vec<String>> {
+pub fn image_paths_with_unique_number(result_map: &HashMap<String, Vec<&str>>) -> Option<Vec<String>> {
     Some(result_map.values().map(|v| v[0].to_string()).collect())
 }

@@ -1,110 +1,91 @@
-use dedual_helper::articles::*;
-use dedual_helper::ocr::find_eight_digit_number;
-use indicatif::{ProgressBar, ProgressStyle};
+use dedual_helper::ocr;
+use indicatif::ProgressBar;
+use rayon::prelude::*;
 use std::collections::HashMap;
-use std::f32::consts::E;
-use std::ops::Add;
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::process::Command;
 use std::vec::Vec;
-use std::{fs, thread};
+use std::fs;
+use dedual_helper::ocr::create_modified_path_with;
 
 #[allow(unused)]
-fn main() {
-    println!("{}", 183 % 301);
-    fs::copy(r"C:\Users\lenovo\Desktop\反邪教去重\大孔 - 副本\微信图片_202409181432481.jpg", r"C:\Users\lenovo\Desktop\反邪教去重\大孔 - 副本 - 已筛选");
-    // vec_push_bench();
-    // match dedual_helper::files::write_string_to_file("\\","hello, world".to_string()) {
-    //     Some(num_write_bytes)=>println!("Wrote {} bytes", num_write_bytes),
-    //     _=>println!("No file written"),
-    // }
-
+fn main() -> Result<(), std::io::Error> {
     let args: Vec<String> = std::env::args().collect();
-    println!("args: {:?}", args);
-
-    //获取目录参数（第一个）
-    let original_path = std::path::Path::new(&args[1]);
-    //获取所有条目
-    let entries = fs::read_dir(original_path).expect("cannot read directory.");
-    //创建一个存储文件名的数组
-    let mut file_names: Vec<String> = Vec::new();
-    for entry in entries {
-        let entry = entry.unwrap(); //解包条目，处理错误
-        let file_name = entry.file_name().to_string_lossy().to_string(); //转换为字符串
-        file_names.push(file_name);
-    }
-
-    let total_files_count = file_names.len();
-    // println!("file_names: {:?}", file_names);
-
-    //进度指示器
-    let pb = ProgressBar::new(file_names.len() as u64);
-
-    // 定义修改函数：将 "c" 变为 "cc"
+    // 定义修改闭包，描述已筛选目录
     let modify_fn = |s: &str| format!("{} - 已筛选", s);
 
-    // 调用函数创建新路径
-    match dedual_helper::ocr::create_modified_path_with(original_path, modify_fn) {
-        Ok(new_path) => println!("成功创建新目录: {:?}", new_path),
-        Err(e) => eprintln!("创建新目录时出错: {}", e),
+    //图片绝对路径
+    let image_paths = ocr::get_image_paths(&args[1])?;
+    let old_path =Path::new(&args[2]);
+    let new_path = Path::new(&image_paths[0]);
+
+    //描述相关路径
+    let parent_path = Path::new(&image_paths[0]).parent().unwrap();
+    if let Some(new_path) = create_modified_path_with(&parent_path, modify_fn) {
+        let mut new_path = new_path;
     }
-    //存储结果
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
-    for file_name in file_names {
-        pb.inc(1);
-        match dedual_helper::ocr::get_text_from_img(
-            &original_path
-                .to_string_lossy()
-                .to_string()
-                .add(file_name.as_str()),
-        ) {
-            Some(result) => {
-                let result = result.trim().replace(" ", "").replace("\n", "");
-                println!("{}", result);
-                //应用找8位数的正则
-                match find_eight_digit_number(result.as_str()) {
-                    Some(number) => {
-                        if let 10 = number.len() {
-                            let number = &number[number.len() - 8..];
-                            //检查重复，有则插入文件名，无责插入新项
-                            match map.get_mut(number) {
-                                Some(duplicate_files) => {
-                                    let _file_name = file_name.clone();
-                                    duplicate_files.push(file_name);
-                                    println!(
-                                        "编号{}重复了{}次，第一次在{}。",
-                                        number,
-                                        duplicate_files.len(),
-                                        _file_name
-                                    )
-                                }
-                                None => {
-                                    map.insert(number.to_string(), vec![file_name]);
-                                    println!("编号{}第一次出现。", number);
-                                }
-                            }
+
+    // 创建
+    match create_modified_path_with(&parent_path, modify_fn) {
+        Ok(new_path) => {
+            // 创建新的目录
+            println!("成功创建新目录: {:?}", new_path)
+        }
+        Err(e) => { eprintln!("无法创建目录") }
+    }
+
+    //图片总数
+    let total_images_count = image_paths.len();
+
+    //进度指示器
+    let pb = ProgressBar::new(image_paths.len() as u64);
+
+    let images_dir = &parent_path; // 替换为你的图片目录
+    let image_paths = ocr::get_image_paths(images_dir.to_str().unwrap())?;
+
+    if image_paths.is_empty() { println!("给定目录没有图片。") }
+
+    let mut result_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    image_paths.iter().for_each(|image_path| {
+        //存储结果
+        let image_path = Path::new(image_path);
+        let output = Command::new("ocrs")
+            .arg(image_path)
+            .output();
+        match output {
+            Ok(output) => {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stdout = stdout.trim().replace("\n", "").replace("\r", "");
+                    match ocr::get_number_from_string(&stdout) {
+                        Some(number) => {
+                            //序号重复，vec推入图片路径数组；序号第一次出现，新增num，vec键值
+                            &mut result_map.entry(number.clone()).and_modify(|vec| {
+                                vec.push(image_path.to_string());
+                                fs::copy(&image_path, &new_path);
+                                println!("编号{}重复了{}次，第一次在\"{}中\"", &number, &vec.len(), &image_path);
+                            }).or_insert_with(|| {
+                                println!("有效编号：{}", number);
+                                vec![image_path.to_string()]
+                            });
                         }
+                        None => println!("未找到序号")
                     }
-                    None => {
-                        println!("ocr number not found.")
-                    }
+                    println!("{}: \"{}\"", image_path, stdout);
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("ocrs报错。 {}: \"{}\"", image_path, stderr);
                 }
             }
-            None => {
-                println!("ocr failed. Maybe caused by file not found.");
+            Err(e) => {
+                eprintln!("无法执行ocrs命令。它在环境变量中吗？ {}: {}", image_path, e);
             }
         }
-    }
-    dedual_helper::ocr::print_result(total_files_count, &map);
-    for (number, files) in map.iter() {
-        let file = original_path.join(files[0].clone());
-        match dedual_helper::ocr::create_modified_path_with(original_path, modify_fn) {
-            Ok(new_path) => {
-                let new_path = new_path.join(files[0].clone());
-                println!("file: {},new_path:{}",file.as_os_str().to_str().expect("msg"),new_path.as_os_str().to_str().expect("msg"));
-                fs::copy(file, new_path);
-            }
-            Err(e) => eprint!("{}", e),
-        }
-    }
+    });
+    ocr::print_result(total_images_count, &result_map);
+    let image_to_copy = ocr::image_path_with_unique_number(&result_map);
+
+    Ok(())
 }
 

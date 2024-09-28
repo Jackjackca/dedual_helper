@@ -2,28 +2,32 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
+use std::io::Error;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::path::Path;
 
-pub fn get_text_from_img(img_name: &str) -> Option<String> {
+pub fn get_text_from_image(image_path: &Path) -> Result<String, io::Error> {
     let output = Command::new("ocrs")
-        .arg(img_name)
+        .arg(image_path)
         .output()
         .expect("failed to execute process");
     match output.status.success() {
-        true => Some(String::from_utf8_lossy(&output.stdout).to_string()),
-        false => None,
+        true => Ok(String::from_utf8_lossy(&output.stdout).to_string()),
+        false => Err(io::Error::new(io::ErrorKind::Other, String::from_utf8_lossy(&output.stderr).to_string())),
     }
 }
 
-pub fn find_eight_digit_number(input: &str) -> Option<String> {
+pub fn get_number_from_string(input: &str) -> Option<String> {
     // 创建一个匹配8位数字的正则表达式
     let re = Regex::new("NO:(.{10})").unwrap();
 
     // 使用正则表达式查找匹配项
     if let Some(cap) = re.captures(input) {
         // 如果找到匹配项，则返回匹配的字符串
-        Some(cap[1].to_string())
+        let number = cap.get(1)?;
+        if let 10 = number.len() {
+            Some(number.as_str().to_string()[3..].to_string())
+        } else { None }
     } else {
         // 如果没有匹配项，返回 None
         None
@@ -48,7 +52,6 @@ pub fn print_result(total_files_count: usize, result_map: &HashMap<String, Vec<S
 }
 
 
-
 /// 根据原始路径和修改函数创建一个新路径，并创建该新目录。
 ///
 /// # 参数
@@ -58,41 +61,26 @@ pub fn print_result(total_files_count: usize, result_map: &HashMap<String, Vec<S
 /// # 返回
 /// - `Ok(new_path)`: 成功时返回新创建的路径
 /// - `Err(io::Error)`: 复制过程中发生的错误
-pub fn create_modified_path_with<F>(original_path: &Path, modify: F) -> io::Result<std::path::PathBuf>
+pub fn create_modified_path_with<F>(original_path: &Path, modify: F) -> io::Result<PathBuf>
 where
     F: Fn(&str) -> String,
 {
     // 确保原始路径有父目录
     let parent = match original_path.parent() {
-        Some(p) => p,
-        None => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "原始路径没有父目录",
-            ))
-        }
+        Some(parent) => parent,
+        None => return Err(Error::new(io::ErrorKind::InvalidInput, ""))
     };
 
     // 获取最后一个组件
     let last_component = match original_path.file_name() {
-        Some(name) => name,
-        None => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "无法获取原始路径的最后一个组件",
-            ))
-        }
+        Some(file_name) => file_name,
+        None => return Err(Error::new(io::ErrorKind::InvalidInput, ""))
     };
 
     // 将最后一个组件转换为 &str
     let last_component_str = match last_component.to_str() {
-        Some(s) => s,
-        None => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "无法将最后一个组件转换为字符串",
-            ))
-        }
+        Some(last_component_str) => last_component_str,
+        None => return Err(Error::new(io::ErrorKind::InvalidInput, ""))
     };
 
     // 使用闭包修改最后一个组件
@@ -100,10 +88,30 @@ where
 
     // 构建新的路径
     let new_path = parent.join(&modified_component);
-
-    // 创建新的目录
     fs::create_dir_all(&new_path)?;
 
     Ok(new_path)
 }
+pub fn get_image_paths(dir: &str) -> io::Result<Vec<String>> {
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext.eq_ignore_ascii_case("png") ||
+                    ext.eq_ignore_ascii_case("jpg") ||
+                    ext.eq_ignore_ascii_case("jpeg") {
+                    if let Some(p) = path.to_str() {
+                        paths.push(p.to_string());
+                    }
+                }
+            }
+        }
+    }
+    Ok(paths)
+}
 
+pub fn image_path_with_unique_number(result_map: &HashMap<String, Vec<String>>) -> Option<Vec<String>> {
+    Some(result_map.values().map(|v| v[0].to_string()).collect())
+}

@@ -1,7 +1,7 @@
-use std::time::{Duration, Instant};
-use indicatif::{ProgressBar,ProgressStyle};
-use std::thread;
 use crate::articles::*;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::thread;
+use std::time::{Duration, Instant};
 #[allow(unused)]
 fn vec_push_bench() {
     let mut n = 0;

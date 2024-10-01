@@ -91,7 +91,7 @@ where
 
     Ok(new_path)
 }
-pub fn get_image_paths(dir: &str) -> io::Result<Vec<String>> {
+pub fn get_image_paths(dir: &str) -> Result<Vec<PathBuf>, Error> {
     let mut paths = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -101,9 +101,7 @@ pub fn get_image_paths(dir: &str) -> io::Result<Vec<String>> {
                 if ext.eq_ignore_ascii_case("png") ||
                     ext.eq_ignore_ascii_case("jpg") ||
                     ext.eq_ignore_ascii_case("jpeg") {
-                    if let Some(p) = path.to_str() {
-                        paths.push(p.to_string());
-                    }
+                    paths.push(path);
                 }
             }
         }
